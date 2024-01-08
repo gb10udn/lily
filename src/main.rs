@@ -1,5 +1,8 @@
 use calamine::{Reader, open_workbook, Xlsx, DataType};
 use chrono::{DateTime, Utc, TimeZone};
+use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
+use dotenv;
+use std::env;
 
 
 const TODO_ID_COL: u32 = 0;  // TODO: 231225 本当は、VBA のコードの中から見るのが良い。ただ、なぜか、a_main.bas が取れずにいる。。
@@ -14,7 +17,8 @@ const DATE_IDX: u32 = 0;
 const START_TODO_IDX: u32 = 6;
 
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let path = "./DailyTask.xlsm";
     let sheet_name = "Sheet1";
     let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
@@ -25,31 +29,31 @@ fn main() {
 
         for idx in START_TODO_IDX..max_idx {
             if let DataType::Float(todo_id) = range.get_value((idx, TODO_ID_COL)).unwrap() {
-                let todo_id_ = *todo_id as i64;
                 let todo_summary = SummaryTask {
-                    todo_id: todo_id_,
+                    todo_id: *todo_id as i64,
                     main_class: range.get_value((idx, MAIN_CLASS_COL)).unwrap().as_string(),
                     sub_class: range.get_value((idx, SUB_CLASS_COL)).unwrap().as_string(),
-                    start_date: range.get_value((idx, START_DATE_COL)).unwrap().as_i64(),
-                    end_date: range.get_value((idx, END_DATE_COL)).unwrap().as_i64(),
+                    start_date: range.get_value((idx, START_DATE_COL)).unwrap().as_string(),  // TODO: 240109 エクセルの日付数値を、文字列型に変換せよ。
+                    end_date: range.get_value((idx, END_DATE_COL)).unwrap().as_string(),  // TODO: 240109 エクセルの日付数値を、文字列型に変換せよ。
                     content: range.get_value((idx, CONTENT_COL)).unwrap().as_string(),
                 };
-                println!("{:?}", todo_summary);
+                todo_summary.upsert().await;
 
-                for col in SATART_EACH_TASK_COL..max_col {
-                    if let DataType::DateTime(value) = range.get_value((DATE_IDX, col)).unwrap() {
-                        let date_time = Utc.timestamp_millis_opt(((*value as i64) * 86400 * 1000) - 2209161600000);
-                        let date_time = date_time.unwrap().format("%Y-%m-%d").to_string();
-                        let each_task = EachTask {
-                            todo_id: todo_id_,
-                            date: date_time,
-                            content: range.get_value((idx, col)).unwrap().as_string(),
-                        };
-                        if each_task.content != None {
-                            println!("{:?}", each_task);
-                        }
-                    }
-                }
+
+                // for col in SATART_EACH_TASK_COL..max_col {
+                //     if let DataType::DateTime(value) = range.get_value((DATE_IDX, col)).unwrap() {
+                //         let date_time = Utc.timestamp_millis_opt(((*value as i64) * 86400 * 1000) - 2209161600000);
+                //         let date_time = date_time.unwrap().format("%Y-%m-%d").to_string();
+                //         let each_task = EachTask {
+                //             todo_id: todo_id_,
+                //             date: date_time,
+                //             content: range.get_value((idx, col)).unwrap().as_string(),
+                //         };
+                //         if each_task.content != None {
+                //             println!("{:?}", each_task);
+                //         }
+                //     }
+                // }
             }
         }
         
@@ -58,14 +62,62 @@ fn main() {
     }
 }
 
-#[derive(Debug)]
+
+/// sqlx で、データベースプールオブジェクトを取得する関数。<br>
+/// "DATABASE_URL" は存在する前提で、非存在時は panic となる。(sqlx でマクロメインで実装するため、別で .db ファイルを作るものとする。)
+async fn obtain_db_connection() -> sqlx::Result<sqlx::Pool<Sqlite>> {
+    dotenv::dotenv().expect("Failed to read .env file");  // INFO: 240109 dotenv::from_filename だと、sqlx のマクロがうまく実行できていないみたいだったので、.env ファイルを対象とした。
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    Ok(SqlitePool::connect(&db_url).await?)
+}
+
+#[derive(Clone, FromRow, Debug)]
 struct SummaryTask {
     todo_id: i64,
     main_class: Option<String>,
     sub_class: Option<String>,
-    start_date: Option<i64>,
-    end_date: Option<i64>,
+    start_date: Option<String>,  // TODO: 240109 エクセルの数値は integer で格納されているので、変換必要なら実施せよ。(chrono での実装になるかも？)
+    end_date: Option<String>,  // TODO: 240109 エクセルの数値は integer で格納されているので、変換必要なら実施せよ。(chrono での実装になるかも？)
     content: Option<String>,
+}
+
+// TODO: 240109 単機能で入力できるかのテストを実装する？(テスト用のデータベースを準備するのか？)
+impl SummaryTask {
+    async fn upsert(&self) {
+        let db = obtain_db_connection().await.unwrap();
+        let temp_result = sqlx::query_as!(SummaryTask, "SELECT * FROM summary WHERE todo_id = ?", self.todo_id).fetch_all(&db).await.unwrap();
+        if temp_result.len() == 0 {
+            let result = sqlx::query!(
+                "INSERT INTO summary (todo_id, main_class, sub_class, start_date, end_date, content) VALUES (?, ?, ?, ?, ?, ?)",
+                self.todo_id,
+                self.main_class,
+                self.sub_class,
+                self.start_date,
+                self.end_date,
+                self.content,
+            )
+            .execute(&db)
+            .await
+            .unwrap();
+            // println!("Query result: {:?}", result);  // TODO: 240109 この関数全体が、Result 型で返すべきな気もする。
+
+        } else {  // TODO: 240109 1 以上がここに来ることになるが、todo_id はユニークであるはずなので、2 以上が来たらエラーを返すべきな気もする。
+            let result = sqlx::query!(
+                "UPDATE summary SET todo_id = ?, main_class = ?, sub_class = ?, start_date = ?, end_date = ?, content = ? WHERE todo_id = ?",
+                self.todo_id,
+                self.main_class,
+                self.sub_class,
+                self.start_date,
+                self.end_date,
+                self.content,
+                self.todo_id,
+            )
+            .execute(&db)
+            .await
+            .unwrap();
+            // println!("Query result: {:?}", result);
+        }
+    }
 }
 
 #[derive(Debug)]
