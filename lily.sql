@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS summary (
 );
 
 CREATE TABLE IF NOT EXISTS content (
-    todo_id  INTEGER PRIMARY KEY,
+    todo_id  INTEGER NOT NULL,
     date     INTEGER NOT NULL,
-    content  TEXT
+    content  TEXT,
+    PRIMARY KEY (todo_id, date)
 );
