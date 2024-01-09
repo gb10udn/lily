@@ -36,7 +36,7 @@ async fn main() {
                     sub_class: range.get_value((idx, SUB_CLASS_COL)).unwrap().as_string(),
                     start_date: cast_excel_date_to_i64(range.get_value((idx, START_DATE_COL))),
                     end_date: cast_excel_date_to_i64(range.get_value((idx, END_DATE_COL))),
-                    content: range.get_value((idx, CONTENT_COL)).unwrap().as_string(),
+                    content: change_valid_crlf_word_of_excel(range.get_value((idx, CONTENT_COL))),
                 };
                 let _result = todo_summary.upsert(&db_conn).await;
 
@@ -65,6 +65,20 @@ fn cast_excel_date_to_i64(cell: Option<&DataType>) -> Option<i64> {
     match cell {
         DataType::DateTime(date_time) => {
             return Some(*date_time as i64);
+        }
+        _ => {
+            return None;
+        }
+    }
+}
+
+
+/// エクセルの不具合なのか、_x000D_ が改行コードして保持されているケースがあるようで、その文字列を変更する関数。
+fn change_valid_crlf_word_of_excel(cell: Option<&DataType>) -> Option<String> {
+    let cell = cell.unwrap();
+    match cell {
+        DataType::String(value) => {
+            return Some(value.replace("_x000D_", "").clone());
         }
         _ => {
             return None;
