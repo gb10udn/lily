@@ -125,7 +125,7 @@ impl SummaryTask {
                 .execute(db_conn)
                 .await
                 .unwrap();
-                // println!("Query result: {:?}", result);  // TODO: 240109 更新はそう起きないはずなので、注意喚起の意味でログを残すと良いのかも？あと、削除されたかのチェックも入れると良い？
+                // println!("Query result: {:?}", result);
             },
             _ => {
                 panic!("UnknownError: todo_id must be unique ...???");
@@ -143,7 +143,10 @@ struct EachTask {
 
 impl EachTask {
     async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) {
-        let temp_result = sqlx::query_as!(EachTask, "SELECT * FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date).fetch_all(db_conn).await.unwrap();
+        let temp_result = sqlx::query_as!(EachTask, "SELECT * FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date)
+        .fetch_all(db_conn)
+        .await
+        .unwrap();
         match temp_result.len() {
             0 => {
                 if let Some(content_val) = &self.content {
@@ -159,17 +162,27 @@ impl EachTask {
                 }
             },
             1 => {
-                let _result = sqlx::query!(
-                    "UPDATE content SET todo_id = ?, date = ?, content = ? WHERE todo_id = ? AND date = ?",
-                    self.todo_id,
-                    self.date,
-                    self.content,
-                    self.todo_id,
-                    self.date,
-                )
-                .execute(db_conn)
-                .await
-                .unwrap();
+                match &self.content {
+                    Some(content_val) => {
+                        let _result = sqlx::query!(
+                            "UPDATE content SET todo_id = ?, date = ?, content = ? WHERE todo_id = ? AND date = ?",
+                            self.todo_id,
+                            self.date,
+                            content_val,
+                            self.todo_id,
+                            self.date,
+                        )
+                        .execute(db_conn)
+                        .await
+                        .unwrap();
+                    },
+                    None => {
+                        let _result = sqlx::query!("DELETE FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date)
+                        .execute(db_conn)
+                        .await
+                        .unwrap();
+                    }
+                }
             },
             _ => {
                 panic!("UnknownError: todo_id and date must be unique ...???");
