@@ -26,8 +26,9 @@ async fn main() {
     if let Ok(range) = workbook.worksheet_range(sheet_name) {
         let max_idx: u32 = range.get_size().0.try_into().unwrap();
         let max_col: u32 = range.get_size().1.try_into().unwrap();
+        let db_conn = obtain_db_connection().await.unwrap();
 
-        for idx in (START_TODO_IDX..max_idx) {//.progress() {  // INFO: 240109 .progress() は、indicatif のプログレスバー出力。
+        for idx in (START_TODO_IDX..max_idx).progress() {  // INFO: 240109 .progress() は、indicatif のプログレスバー出力。
             if let DataType::Float(todo_id) = range.get_value((idx, TODO_ID_COL)).unwrap() {
                 let todo_summary = SummaryTask {
                     todo_id: *todo_id as i64,
@@ -37,7 +38,7 @@ async fn main() {
                     end_date: cast_excel_date_to_i64(range.get_value((idx, END_DATE_COL))),
                     content: range.get_value((idx, CONTENT_COL)).unwrap().as_string(),
                 };
-                todo_summary.upsert().await;
+                todo_summary.upsert(&db_conn).await;
 
                 for col in SATART_EACH_TASK_COL..max_col {
                     if let DataType::DateTime(value) = range.get_value((DATE_IDX, col)).unwrap() {
@@ -46,11 +47,7 @@ async fn main() {
                             date: *value as i64,
                             content: range.get_value((idx, col)).unwrap().as_string(),
                         };
-
-                        each_task.upsert().await;
-                        // if each_task.content != None {
-                        //     println!("{:?}", each_task);
-                        // }
+                        each_task.upsert(&db_conn).await;
                     }
                 }
             }
@@ -62,7 +59,7 @@ async fn main() {
 }
 
 
-/// calamine で取得したDateTime を、integer に変換する関数。
+/// calamine で取得した DateTime を、integer に変換する関数。
 fn cast_excel_date_to_i64(cell: Option<&DataType>) -> Option<i64> {
     let cell = cell.unwrap();
     match cell {
@@ -96,9 +93,8 @@ struct SummaryTask {
 
 // TODO: 240109 単機能で入力できるかのテストを実装する？(テスト用のデータベースを準備するのか？)
 impl SummaryTask {
-    async fn upsert(&self) {
-        let db = obtain_db_connection().await.unwrap();
-        let temp_result = sqlx::query_as!(SummaryTask, "SELECT * FROM summary WHERE todo_id = ?", self.todo_id).fetch_all(&db).await.unwrap();
+    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) {
+        let temp_result = sqlx::query_as!(SummaryTask, "SELECT * FROM summary WHERE todo_id = ?", self.todo_id).fetch_all(db_conn).await.unwrap();
         match temp_result.len() {
             0 => {
                 let _result = sqlx::query!(
@@ -110,7 +106,7 @@ impl SummaryTask {
                     self.end_date,
                     self.content,
                 )
-                .execute(&db)
+                .execute(db_conn)
                 .await
                 .unwrap();
                 // println!("Query result: {:?}", result);  // TODO: 240109 この関数全体が、Result 型で返すべきな気もする。
@@ -126,14 +122,14 @@ impl SummaryTask {
                     self.content,
                     self.todo_id,
                 )
-                .execute(&db)
+                .execute(db_conn)
                 .await
                 .unwrap();
                 // println!("Query result: {:?}", result);  // TODO: 240109 更新はそう起きないはずなので、注意喚起の意味でログを残すと良いのかも？あと、削除されたかのチェックも入れると良い？
             },
             _ => {
                 panic!("UnknownError: todo_id must be unique ...???");
-            },
+            }
         }
     }
 }
@@ -146,9 +142,8 @@ struct EachTask {
 }
 
 impl EachTask {
-    async fn upsert(&self) {
-        let db = obtain_db_connection().await.unwrap();
-        let temp_result = sqlx::query_as!(EachTask, "SELECT * FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date).fetch_all(&db).await.unwrap();
+    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) {
+        let temp_result = sqlx::query_as!(EachTask, "SELECT * FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date).fetch_all(db_conn).await.unwrap();
         match temp_result.len() {
             0 => {
                 if let Some(content_val) = &self.content {
@@ -158,7 +153,7 @@ impl EachTask {
                         self.date,
                         content_val,
                     )
-                    .execute(&db)
+                    .execute(db_conn)
                     .await
                     .unwrap();
                 }
@@ -172,7 +167,7 @@ impl EachTask {
                     self.todo_id,
                     self.date,
                 )
-                .execute(&db)
+                .execute(db_conn)
                 .await
                 .unwrap();
             },
