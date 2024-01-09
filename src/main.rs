@@ -5,12 +5,12 @@ use std::env;
 use indicatif::ProgressIterator;
 
 
-const TODO_ID_COL: u32 = 0;  // TODO: 231225 本当は、VBA のコードの中から見るのが良い。ただ、なぜか、a_main.bas が取れずにいる。。
+const TODO_ID_COL: u32 = 0;
 const MAIN_CLASS_COL: u32 = 1;
 const SUB_CLASS_COL: u32 = 2;
 const START_DATE_COL: u32 = 3;
 const END_DATE_COL: u32 = 4;
-const CONTENT_COL: u32 = 5;  // INFO: 231225 0 始まりの index であることに注意せよ。
+const CONTENT_COL: u32 = 5;
 const SATART_EACH_TASK_COL: u32 = 6;
 
 const DATE_IDX: u32 = 0;
@@ -38,7 +38,7 @@ async fn main() {
                     end_date: cast_excel_date_to_i64(range.get_value((idx, END_DATE_COL))),
                     content: range.get_value((idx, CONTENT_COL)).unwrap().as_string(),
                 };
-                todo_summary.upsert(&db_conn).await;
+                let _result = todo_summary.upsert(&db_conn).await;
 
                 for col in SATART_EACH_TASK_COL..max_col {
                     if let DataType::DateTime(value) = range.get_value((DATE_IDX, col)).unwrap() {
@@ -47,14 +47,14 @@ async fn main() {
                             date: *value as i64,
                             content: range.get_value((idx, col)).unwrap().as_string(),
                         };
-                        each_task.upsert(&db_conn).await;
+                        let _result = each_task.upsert(&db_conn).await;
                     }
                 }
             }
         }
         
     } else {
-        println!("No Sheet of '{}' ...", sheet_name);
+        panic!("FatalError: No Sheet of '{}' ...", sheet_name);
     }
 }
 
@@ -91,10 +91,13 @@ struct SummaryTask {
     content: Option<String>,
 }
 
-// TODO: 240109 単機能で入力できるかのテストを実装する？(テスト用のデータベースを準備するのか？)
+
 impl SummaryTask {
-    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) {
-        let temp_result = sqlx::query_as!(SummaryTask, "SELECT * FROM summary WHERE todo_id = ?", self.todo_id).fetch_all(db_conn).await.unwrap();
+    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
+        let temp_result = sqlx::query_as!(SummaryTask, "SELECT * FROM summary WHERE todo_id = ?", self.todo_id)
+        .fetch_all(db_conn)
+        .await?;//.unwrap();
+
         match temp_result.len() {
             0 => {
                 let _result = sqlx::query!(
@@ -107,9 +110,7 @@ impl SummaryTask {
                     self.content,
                 )
                 .execute(db_conn)
-                .await
-                .unwrap();
-                // println!("Query result: {:?}", result);  // TODO: 240109 この関数全体が、Result 型で返すべきな気もする。
+                .await?;
             },
             1 => {
                 let _result = sqlx::query!(
@@ -123,14 +124,13 @@ impl SummaryTask {
                     self.todo_id,
                 )
                 .execute(db_conn)
-                .await
-                .unwrap();
-                // println!("Query result: {:?}", result);
+                .await?;
             },
             _ => {
-                panic!("UnknownError: todo_id must be unique ...???");
+                panic!("FetalError: todo_id must be unique ...???");
             }
         }
+        Ok(())
     }
 }
 
@@ -142,11 +142,11 @@ struct EachTask {
 }
 
 impl EachTask {
-    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) {
+    async fn upsert(&self, db_conn: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
         let temp_result = sqlx::query_as!(EachTask, "SELECT * FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date)
         .fetch_all(db_conn)
-        .await
-        .unwrap();
+        .await?;
+
         match temp_result.len() {
             0 => {
                 if let Some(content_val) = &self.content {
@@ -157,8 +157,7 @@ impl EachTask {
                         content_val,
                     )
                     .execute(db_conn)
-                    .await
-                    .unwrap();
+                    .await?;
                 }
             },
             1 => {
@@ -173,20 +172,20 @@ impl EachTask {
                             self.date,
                         )
                         .execute(db_conn)
-                        .await
-                        .unwrap();
+                        .await?;
                     },
                     None => {
                         let _result = sqlx::query!("DELETE FROM content WHERE todo_id = ? AND date = ?", self.todo_id, self.date)
                         .execute(db_conn)
-                        .await
-                        .unwrap();
+                        .await?;
                     }
                 }
             },
             _ => {
-                panic!("UnknownError: todo_id and date must be unique ...???");
+                panic!("FetalError: todo_id and date must be unique ...???");
             }
         }
+
+        Ok(())
     }
 }
