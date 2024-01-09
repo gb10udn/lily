@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc, TimeZone};
 use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
 use dotenv;
 use std::env;
+use indicatif::ProgressIterator;
 
 
 const TODO_ID_COL: u32 = 0;  // TODO: 231225 本当は、VBA のコードの中から見るのが良い。ただ、なぜか、a_main.bas が取れずにいる。。
@@ -27,7 +28,7 @@ async fn main() {
         let max_idx: u32 = range.get_size().0.try_into().unwrap();
         let max_col: u32 = range.get_size().1.try_into().unwrap();
 
-        for idx in START_TODO_IDX..max_idx {
+        for idx in (START_TODO_IDX..max_idx).progress() {  // INFO: 240109 .progress() は、indicatif のプログレスバー出力。
             if let DataType::Float(todo_id) = range.get_value((idx, TODO_ID_COL)).unwrap() {
                 let todo_summary = SummaryTask {
                     todo_id: *todo_id as i64,

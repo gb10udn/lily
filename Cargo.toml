@@ -12,3 +12,4 @@ walkdir = "2.4.0"
 dotenv = "0.15.0"
 sqlx = { version = "0.6.2", features = ["runtime-tokio-native-tls", "sqlite"]}
 tokio = { version = "1.20.0", features = ["macros"]}
+indicatif = "0.17.7"
