@@ -19,7 +19,7 @@ const START_TODO_IDX: u32 = 6;
 
 #[tokio::main]
 async fn main() {
-    let path = "./DailyTask.xlsm";
+    let path = "./DailyTask.xlsm";  // TODO: 240109 walkdir で複数ファイルで実行できるようにせよ。
     let sheet_name = "Sheet1";
     let mut workbook: Xlsx<_> = open_workbook(path).expect("Cannot open file");
 
@@ -33,8 +33,8 @@ async fn main() {
                     todo_id: *todo_id as i64,
                     main_class: range.get_value((idx, MAIN_CLASS_COL)).unwrap().as_string(),
                     sub_class: range.get_value((idx, SUB_CLASS_COL)).unwrap().as_string(),
-                    start_date: range.get_value((idx, START_DATE_COL)).unwrap().as_string(),  // TODO: 240109 エクセルの日付数値を、文字列型に変換せよ。
-                    end_date: range.get_value((idx, END_DATE_COL)).unwrap().as_string(),  // TODO: 240109 エクセルの日付数値を、文字列型に変換せよ。
+                    start_date: cast_excel_date_to_i64(range.get_value((idx, START_DATE_COL))),
+                    end_date: cast_excel_date_to_i64(range.get_value((idx, END_DATE_COL))),
                     content: range.get_value((idx, CONTENT_COL)).unwrap().as_string(),
                 };
                 todo_summary.upsert().await;
@@ -63,6 +63,20 @@ async fn main() {
 }
 
 
+/// calamine で取得したDateTime を、integer に変換する関数。
+fn cast_excel_date_to_i64(cell: Option<&DataType>) -> Option<i64> {
+    let cell = cell.unwrap();
+    match cell {
+        DataType::DateTime(date_time) => {
+            return Some(*date_time as i64);
+        }
+        _ => {
+            return None;
+        }
+    }
+}
+
+
 /// sqlx で、データベースプールオブジェクトを取得する関数。<br>
 /// "DATABASE_URL" は存在する前提で、非存在時は panic となる。(sqlx でマクロメインで実装するため、別で .db ファイルを作るものとする。)
 async fn obtain_db_connection() -> sqlx::Result<sqlx::Pool<Sqlite>> {
@@ -76,8 +90,8 @@ struct SummaryTask {
     todo_id: i64,
     main_class: Option<String>,
     sub_class: Option<String>,
-    start_date: Option<String>,  // TODO: 240109 エクセルの数値は integer で格納されているので、変換必要なら実施せよ。(chrono での実装になるかも？)
-    end_date: Option<String>,  // TODO: 240109 エクセルの数値は integer で格納されているので、変換必要なら実施せよ。(chrono での実装になるかも？)
+    start_date: Option<i64>,
+    end_date: Option<i64>,
     content: Option<String>,
 }
 
@@ -115,7 +129,7 @@ impl SummaryTask {
             .execute(&db)
             .await
             .unwrap();
-            // println!("Query result: {:?}", result);
+            // println!("Query result: {:?}", result);  // TODO: 240109 更新はそう起きないはずなので、注意喚起の意味でログを残すと良いのかも？あと、削除されたかのチェックも入れると良い？
         }
     }
 }
