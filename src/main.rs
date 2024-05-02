@@ -11,7 +11,7 @@ const SUB_CLASS_COL: u32 = 2;
 const START_DATE_COL: u32 = 3;
 const END_DATE_COL: u32 = 4;
 const CONTENT_COL: u32 = 5;
-const SATART_EACH_TASK_COL: u32 = 6;
+const START_EACH_TASK_COL: u32 = 6;
 
 const DATE_IDX: u32 = 0;
 const START_TODO_IDX: u32 = 6;
@@ -40,7 +40,7 @@ async fn main() {
                 };
                 let _result = todo_summary.upsert(&db_conn).await;
 
-                for col in SATART_EACH_TASK_COL..max_col {
+                for col in START_EACH_TASK_COL..max_col {
                     if let DataType::DateTime(value) = range.get_value((DATE_IDX, col)).unwrap() {
                         let each_task = EachTask {
                             todo_id: *todo_id as i64,
